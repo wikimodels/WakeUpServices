@@ -1,0 +1,55 @@
+denon run --allow-net --allow-import --allow-read --allow-env --allow-write --unstable-kv --allow-sys --unstable-cron ./server.ts
+
+Worknig with this package
+https://www.npmjs.com/package/binance
+
+
+ 
+import _ from "https://cdn.skypack.dev/lodash";
+
+import { load } from "https://deno.land/std@0.223.0/dotenv/mod.ts";
+const config = await ConfigOperator.getConfig();;;
+
+  
+C:\Users\Vitali\.deno\deployctl
+Current time in POSTMANs
+{
+  "time" : {{$timestamp}}
+}
+
+//-------------- DENO COMMANDS ------------------
+
+
+deployctl deploy --project wakeup-service --entrypoint server.ts
+
+deployctl projects delete wakeup-service
+
+ export enum ConsoleColors {
+  "white" = "white",
+  "red" = "red",
+  "green" = "green",
+  "yellow" = "yellow",
+  "blue" = "blue",
+  "magenta" = "magenta",
+  "cyan" = "cyan",
+}
+
+BB showed perfect result! Keep in mind that the code has its percularities.
+
+-------- MONGODB --------------
+PAIN IN THE ASS WAS authMechanism=SCRAM-SHA-1!!!
+ "mongodb+srv://USERNAME:<PASSWORD>@cluster0.wgp2hmv.mongodb.net/?authMechanism=SCRAM-SHA-1&retryWrites=true&w=majority&appName=Cluster0"
+
+deployctl deploy --project dw-kline --regions="sin,cdg,hnd" --entrypoint server.ts
+
+Region Code	Location
+sin	Singapore
+cdg	Paris, France
+arn	Stockholm, Sweden
+lhr	London, UK
+gru	São Paulo, Brazil
+hnd	Tokyo, Japan
+syd	Sydney, Australia
+
+=== RENEW PATH FOR POWERSHELL ======
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
