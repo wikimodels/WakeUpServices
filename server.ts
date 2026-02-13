@@ -1,197 +1,189 @@
-// main.ts — Deno-сервер + Cron (Пробуждение + Запуск Задач)
+import { load } from "https://deno.land/std@0.224.0/dotenv/mod.ts";
 
-// —————————————————————————————————————————————
-// 1. Автоматическая загрузка .env (только локально)
-// —————————————————————————————————————————————
+// Load .env (локально только)
 try {
   await Deno.stat(".env");
-  const { load } = await import("https://deno.land/std@0.224.0/dotenv/mod.ts");
   await load({ export: true });
-  console.log("✅ [ENV] .env загружен (локальный режим)");
+  console.log("✅ .env loaded");
 } catch {
-  // В Deno Deploy файловой системы нет — это нормально
+  console.log("ℹ️ Using Deno Deploy env vars");
+}
+
+const PORT = 8000;
+const SECRET_TOKEN = Deno.env.get("SECRET_TOKEN");
+
+if (!SECRET_TOKEN) {
+  console.error("ERROR: SECRET_TOKEN not set");
+  Deno.exit(1);
 }
 
 // —————————————————————————————————————————————
-// 2. Простейший HTTP-сервер
+// 1. HTTP Server
 // —————————————————————————————————————————————
-Deno.serve({ port: 8000, hostname: "0.0.0.0" }, (req) => {
-  if (req.method === "GET" && req.url.endsWith("/health")) {
+
+Deno.serve({ port: PORT, hostname: "0.0.0.0" }, (req) => {
+  const url = new URL(req.url);
+
+  // Health check (no auth)
+  if (req.method === "GET" && url.pathname === "/health") {
     return new Response(JSON.stringify({ status: "ok" }), {
       headers: { "Content-Type": "application/json" },
     });
   }
-  return new Response("Hello from Deno Cron & Wake-Up Service!", {
-    status: 200,
-  });
+
+  return new Response("Cron Wake-Up Service", { status: 200 });
 });
 
-console.log("🚀 [SERVER] Запущен на http://0.0.0.0:8000");
-console.log("   Эндпоинт здоровья: GET /health");
+console.log(`🚀 Server on port ${PORT}`);
 
-// ============================================================================
-// 3. Cron: ПРОБУЖДЕНИЕ внешних сервисов (каждые 10 минут)
-// (Этот код полностью сохранен из вашего файла)
-// ============================================================================
-Deno.cron("Wake up external services", "*/10 * * * *", async () => {
-  console.log("⏰ [CRON Wake-Up] Запуск задачи 'пробуждения'...");
+// —————————————————————————————————————————————
+// 2. Helpers
+// —————————————————————————————————————————————
+
+function getBearerHeaders(): HeadersInit {
+  return {
+    Authorization: `Bearer ${SECRET_TOKEN}`,
+    "Content-Type": "application/json",
+  };
+}
+
+function getCoinSifterHeaders(): HeadersInit {
+  return {
+    "X-Auth-Token": SECRET_TOKEN!,
+  };
+}
+
+async function wakeUpService(
+  serviceName: string,
+  url: string,
+  isCoinSifter: boolean = false
+) {
+  const jitterSeconds = Math.floor(Math.random() * 301);
+  console.log(`[WAKE-UP] ${serviceName} scheduled (+${jitterSeconds}s jitter)`);
+
+  setTimeout(async () => {
+    console.log(`[WAKE-UP] 🚀 ${serviceName}`);
+    try {
+      const headers = isCoinSifter
+        ? getCoinSifterHeaders()
+        : getBearerHeaders();
+
+      const res = await fetch(url, { method: "GET", headers });
+      if (res.ok) {
+        console.log(`✅ [WAKE-UP] ${serviceName} ok (${res.status})`);
+      } else {
+        console.warn(
+          `⚠️ [WAKE-UP] ${serviceName}: ${res.status} ${await res.text()}`
+        );
+      }
+    } catch (e) {
+      console.error(`❌ [WAKE-UP] ${serviceName}: ${(e as Error).message}`);
+    }
+  }, jitterSeconds * 1000);
+}
+
+async function runTask(
+  serviceName: string,
+  baseUrl: string,
+  taskEndpoint: string
+) {
+  const url = `${baseUrl}${taskEndpoint}`;
+  console.log(`[TASK] 🚀 ${serviceName}${taskEndpoint}`);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: getBearerHeaders(),
+    });
+
+    if (res.status === 200) {
+      console.log(`✅ [TASK] ${serviceName}${taskEndpoint} ok`);
+    } else if (res.status === 409) {
+      console.warn(`⚠️ [TASK] ${serviceName}${taskEndpoint} busy (409)`);
+    } else if (res.status === 403) {
+      console.error(`❌ [TASK] ${serviceName}${taskEndpoint} forbidden (403)`);
+    } else {
+      console.error(`❌ [TASK] ${serviceName}${taskEndpoint}: ${res.status}`);
+    }
+  } catch (e) {
+    console.error(
+      `❌ [TASK] ${serviceName}${taskEndpoint}: ${(e as Error).message}`
+    );
+  }
+}
+
+// —————————————————————————————————————————————
+// 3. CRON: Wake-Up (every 10 min)
+// —————————————————————————————————————————————
+
+Deno.cron("Wake-Up all services", "*/10 * * * *", async () => {
+  console.log("[CRON] ⏰ Wake-up cycle");
 
   const COIN_SIFTER_URL = Deno.env.get("COIN_SIFTER_URL");
-  const KLINE_PROVIDER_URL = Deno.env.get("KLINE_PROVIDER_URL");
-  const SECRET_TOKEN = Deno.env.get("SECRET_TOKEN"); //
+  const BIZZAR_URL = Deno.env.get("BIZZAR_KLINE_DATA_URL");
+  const BAZZAR_URL = Deno.env.get("BAZZAR_KLINE_DATA_URL");
+// const KLINE_DATA_URL = Deno.env.get("KLINE_DATA_URL");
 
-  if (!COIN_SIFTER_URL || !KLINE_PROVIDER_URL || !SECRET_TOKEN) {
-    console.error("❌ [CRON Wake-Up] Ошибка: не заданы переменные окружения!");
-    console.error(
-      "   Проверьте: COIN_SIFTER_URL, KLINE_PROVIDER_URL, SECRET_TOKEN"
-    );
+  if (!COIN_SIFTER_URL || !BIZZAR_URL || !BAZZAR_URL) {
+    console.error("[CRON] ❌ Missing env vars");
     return;
   }
 
-  const jitter1 = Math.floor(Math.random() * 201); // 0–200 сек
-  const jitter2 = Math.floor(Math.random() * 201);
-
-  console.log(
-    `⏳ [CRON Wake-Up] Задержки: CoinSifter — ${jitter1}s, KlineProvider — ${jitter2}s`
-  );
-
-  // Пробуждение CoinSifter
-  setTimeout(async () => {
-    try {
-      const res = await fetch(`${COIN_SIFTER_URL}/blacklist`, {
-        //
-        headers: { "X-Auth-Token": SECRET_TOKEN }, //
-        method: "GET",
-      });
-      if (res.ok) {
-        console.log("✅ [CRON Wake-Up] CoinSifter успешно разбужен (200 OK)");
-      } else {
-        console.warn(`⚠️ [CRON Wake-Up] CoinSifter ответил: ${res.status}`);
-      }
-    } catch (e) {
-      console.error(
-        `💥 [CRON Wake-Up] Ошибка при пробуждении CoinSifter: ${e.message}`
-      );
-    }
-  }, jitter1 * 1000);
-
-  // Пробуждение KlineProvider
-  setTimeout(async () => {
-    try {
-      const res = await fetch(`${KLINE_PROVIDER_URL}/cache/global_fr`); //
-      if (res.ok) {
-        console.log(
-          "✅ [CRON Wake-Up] KlineProvider успешно разбужен (200 OK)"
-        );
-      } else {
-        console.warn(`⚠️ [CRON Wake-Up] KlineProvider ответил: ${res.status}`);
-      }
-    } catch (e) {
-      console.error(
-        `💥 [CRON Wake-Up] Ошибка при пробуждении KlineProvider: ${e.message}`
-      );
-    }
-  }, jitter2 * 1000);
+  await wakeUpService("CoinSifter", `${COIN_SIFTER_URL}/blacklist`, true);
+  await wakeUpService("BIZZAR", `${BIZZAR_URL}/api/1h-btc-candle`);
+  await wakeUpService("BAZZAR", `${BAZZAR_URL}/api/1h-btc-candle`);
+  // await wakeUpService("MarketVibe", `${KLINE_DATA_URL}/api/1h-btc-candle`);
 });
 
-// ============================================================================
-// 4. (НОВОЕ) Cron: ЗАПУСК ЗАДАЧ Data Collector
-// ============================================================================
+// —————————————————————————————————————————————
+// 4. CRON: Data Collector Jobs
+// —————————————————————————————————————————————
 
-// --- Вспомогательная функция для Klines ---
-async function runKlineTask(timeframe: string) {
-  const KLINE_PROVIDER_URL = Deno.env.get("KLINE_PROVIDER_URL");
-  if (!KLINE_PROVIDER_URL) {
-    console.error(`❌ [CRON ${timeframe}] KLINE_PROVIDER_URL не найден!`);
-    return;
-  }
+// --- ИЗМЕНЕНИЕ: Получаем оба URL ---
+const BAZZAR_URL = Deno.env.get("BAZZAR_KLINE_DATA_URL");
+const BIZZAR_URL = Deno.env.get("BIZZAR_KLINE_DATA_URL");
+// --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-  console.log(`🚀 [CRON ${timeframe}] Запуск задачи сбора данных...`);
-  try {
-    const res = await fetch(`${KLINE_PROVIDER_URL}/get-market-data`, {
-      //
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ timeframe: timeframe }),
-    });
-
-    if (res.status === 202) {
-      console.log(
-        `✅ [CRON ${timeframe}] Задача успешно принята сервером (202 Accepted)`
-      );
-    } else if (res.status === 409) {
-      console.warn(
-        `⚠️ [CRON ${timeframe}] Задача отклонена (409 Conflict). Воркер был занят.`
-      );
-    } else {
-      console.error(
-        `❌ [CRON ${timeframe}] Сервер вернул ошибку: ${
-          res.status
-        } ${await res.text()}`
-      );
+// 1h: most hours except 12 (BAZZAR)
+Deno.cron(
+  "Bazzar 1h Job",
+  "0 1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23 * * *",
+  async () => {
+    if (BAZZAR_URL) {
+      await runTask("BAZZAR", BAZZAR_URL, "/api/jobs/run/1h");
     }
-  } catch (e) {
-    console.error(
-      `💥 [CRON ${timeframe}] Ошибка сети при запуске задачи: ${e.message}`
-    );
   }
-}
-
-// --- Вспомогательная функция для FR ---
-async function runFrTask() {
-  const KLINE_PROVIDER_URL = Deno.env.get("KLINE_PROVIDER_URL");
-  const SECRET_TOKEN = Deno.env.get("SECRET_TOKEN"); //
-  if (!KLINE_PROVIDER_URL || !SECRET_TOKEN) {
-    console.error(
-      "❌ [CRON FR] KLINE_PROVIDER_URL или SECRET_TOKEN не найдены!"
-    );
-    return;
-  }
-
-  console.log("🚀 [CRON FR] Запуск задачи сбора FR...");
-  try {
-    const res = await fetch(`${KLINE_PROVIDER_URL}/api/v1/internal/update-fr`, {
-      //
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${SECRET_TOKEN}`, //
-      },
-    });
-
-    if (res.status === 202) {
-      console.log("✅ [CRON FR] Задача FR успешно принята (202 Accepted)");
-    } else if (res.status === 409) {
-      console.warn(
-        "⚠️ [CRON FR] Задача FR отклонена (409 Conflict). Воркер был занят."
-      );
-    } else {
-      console.error(
-        `❌ [CRON FR] Сервер вернул ошибку: ${res.status} ${await res.text()}`
-      );
-    }
-  } catch (e) {
-    console.error(`💥 [CRON FR] Ошибка сети при запуске задачи: ${e.message}`);
-  }
-}
-
-// --- Определения Cron (по вашему расписанию) ---
-// (ИЗМЕНЕНИЕ: Имена исправлены, двоеточие ':' заменено на тире '-')
-
-// 1. ТФ 1 час (Каждый час в 00 минут)
-Deno.cron("Task-1h", "0 * * * *", () => runKlineTask("1h"));
-
-// 2. ТФ FR (Каждые 4 часа в 04 минуты)
-Deno.cron("Task-FR", "4 */4 * * *", () => runFrTask());
-
-// 3. ТФ 4 часа (Каждые 4 часа в 08 минут)
-Deno.cron("Task-4h", "8 */4 * * *", () => runKlineTask("4h"));
-
-// 4. ТФ 12 часов (Каждые 12 часов в 12 минут)
-Deno.cron("Task-12h", "12 */12 * * *", () => runKlineTask("12h"));
-
-// 5. ТФ 1 день (Каждый день в 00:15)
-Deno.cron("Task-1d", "15 0 * * *", () => runKlineTask("1d"));
-
-console.log(
-  "✅ [CRON] Все 5 задач сбора данных (1h, 4h, 12h, 1d, FR) настроены."
 );
+
+// --- ИЗМЕНЕНИЕ: 4h Job (BIZZAR) ---
+// 4h: 04:00, 20:00
+Deno.cron("BIZZAR 4h Job", "0 4,12,20 * * *", async () => {
+  if (BIZZAR_URL) {
+    await runTask("BIZZAR", BIZZAR_URL, "/api/jobs/run/4h");
+  }
+});
+
+// --- ИЗМЕНЕНИЕ: 8h Job (BIZZAR) ---
+// 8h: 00:00, 08:00, 16:00
+Deno.cron("BIZZAR 8h Job", "0 0,8,16 * * *", async () => {
+  if (BIZZAR_URL) {
+    await runTask("BIZZAR", BIZZAR_URL, "/api/jobs/run/8h");
+  }
+});
+// --- КОНЕЦ ИZМЕНЕНИЯ ---
+
+// 12h: 12:00 (BAZZAR)
+Deno.cron("Bazzar 12h Job", "0 12 * * *", async () => {
+  if (BAZZAR_URL) {
+    await runTask("BAZZAR", BAZZAR_URL, "/api/jobs/run/12h");
+  }
+});
+
+// 1d: 00:00 (BAZZAR)
+Deno.cron("Bazzar 1d Job", "0 0 * * *", async () => {
+  if (BAZZAR_URL) {
+    await runTask("BAZZAR", BAZZAR_URL, "/api/jobs/run/1d");
+  }
+});
+
+console.log("✅ Cron tasks configured");

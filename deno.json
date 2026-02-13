@@ -1,4 +1,8 @@
 {
+  "tasks": {
+    "deploy": "deployctl deploy --prod",
+    "delete": "deployctl projects delete 3e00b5ea-bee6-4ae6-b2e9-a0726cd6d5d9"
+  },
   "deploy": {
     "project": "3e00b5ea-bee6-4ae6-b2e9-a0726cd6d5d9",
     "exclude": [
