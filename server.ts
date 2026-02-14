@@ -56,9 +56,10 @@ function getCoinSifterHeaders(): HeadersInit {
 async function wakeUpService(
   serviceName: string,
   url: string,
-  isCoinSifter: boolean = false
+  isCoinSifter: boolean = false,
+  maxJitterSeconds: number = 300
 ) {
-  const jitterSeconds = Math.floor(Math.random() * 301);
+  const jitterSeconds = Math.floor(Math.random() * (maxJitterSeconds + 1));
   console.log(`[WAKE-UP] ${serviceName} scheduled (+${jitterSeconds}s jitter)`);
 
   setTimeout(async () => {
@@ -120,19 +121,36 @@ Deno.cron("Wake-Up all services", "*/10 * * * *", async () => {
   console.log("[CRON] ⏰ Wake-up cycle");
 
   const COIN_SIFTER_URL = Deno.env.get("COIN_SIFTER_URL");
-  const BIZZAR_URL = Deno.env.get("BIZZAR_KLINE_DATA_URL");
   const BAZZAR_URL = Deno.env.get("BAZZAR_KLINE_DATA_URL");
-// const KLINE_DATA_URL = Deno.env.get("KLINE_DATA_URL");
 
-  if (!COIN_SIFTER_URL || !BIZZAR_URL || !BAZZAR_URL) {
+  if (!COIN_SIFTER_URL || !BAZZAR_URL) {
     console.error("[CRON] ❌ Missing env vars");
     return;
   }
 
   await wakeUpService("CoinSifter", `${COIN_SIFTER_URL}/blacklist`, true);
-  await wakeUpService("BIZZAR", `${BIZZAR_URL}/api/1h-btc-candle`);
   await wakeUpService("BAZZAR", `${BAZZAR_URL}/api/1h-btc-candle`);
+
   // await wakeUpService("MarketVibe", `${KLINE_DATA_URL}/api/1h-btc-candle`);
+});
+
+// —————————————————————————————————————————————
+// 3.1 CRON: BizzarPrice Wake-Up (every 10-15 min)
+// —————————————————————————————————————————————
+
+Deno.cron("BizzarPrice Wake-Up", "*/12 * * * *", async () => {
+  const BIZZAR_WAKE_UP_SERVICE = Deno.env.get("BIZZAR_WAKE_UP_SERVICE");
+  if (!BIZZAR_WAKE_UP_SERVICE) {
+    console.error("[CRON] ❌ Missing BIZZAR_WAKE_UP_SERVICE");
+    return;
+  }
+
+  await wakeUpService(
+    "BizzarPrice",
+    `${BIZZAR_WAKE_UP_SERVICE}/btc-price`,
+    false,
+    120
+  );
 });
 
 // —————————————————————————————————————————————
@@ -141,7 +159,6 @@ Deno.cron("Wake-Up all services", "*/10 * * * *", async () => {
 
 // --- ИЗМЕНЕНИЕ: Получаем оба URL ---
 const BAZZAR_URL = Deno.env.get("BAZZAR_KLINE_DATA_URL");
-const BIZZAR_URL = Deno.env.get("BIZZAR_KLINE_DATA_URL");
 // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 // 1h: most hours except 12 (BAZZAR)
@@ -154,23 +171,6 @@ Deno.cron(
     }
   }
 );
-
-// --- ИЗМЕНЕНИЕ: 4h Job (BIZZAR) ---
-// 4h: 04:00, 20:00
-Deno.cron("BIZZAR 4h Job", "0 4,12,20 * * *", async () => {
-  if (BIZZAR_URL) {
-    await runTask("BIZZAR", BIZZAR_URL, "/api/jobs/run/4h");
-  }
-});
-
-// --- ИЗМЕНЕНИЕ: 8h Job (BIZZAR) ---
-// 8h: 00:00, 08:00, 16:00
-Deno.cron("BIZZAR 8h Job", "0 0,8,16 * * *", async () => {
-  if (BIZZAR_URL) {
-    await runTask("BIZZAR", BIZZAR_URL, "/api/jobs/run/8h");
-  }
-});
-// --- КОНЕЦ ИZМЕНЕНИЯ ---
 
 // 12h: 12:00 (BAZZAR)
 Deno.cron("Bazzar 12h Job", "0 12 * * *", async () => {
